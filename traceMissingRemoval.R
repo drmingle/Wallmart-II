@@ -46,9 +46,6 @@ traceMissingRemoval <- function(weatherDatatable){
     weatherDatatable[, colName] <- as.numeric(zooColumn)
     print(paste0(colName, " column processed"))
   }  
-  
-  #Transform monotonous columns to NAs
-  #weatherDatatable[, names(monotonous)] <- NA
  
   return(weatherDatatable)
   
