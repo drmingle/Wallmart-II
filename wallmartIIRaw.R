@@ -1,5 +1,5 @@
 #Wallmart II, job hunt second round
-#Ver. 0.0.4 #GBM Modeling Evaluation code complete
+#Ver. 0.1.1 #Missing weather modeling completed
 
 #Libraries, directories, options and extra functions----------------------
 require("rjson")
@@ -23,6 +23,7 @@ h2o.jarLoc <- directories$h2o.jarLoc
 
 #Define extra functions
 source(file.path(workingDirectory, "traceMissingRemoval.R"))
+source(file.path(workingDirectory, "multiplot.R"))
 
 #Detect available cores
 numCores <- detectCores()
@@ -34,6 +35,14 @@ keys <- fread(file.path(dataDirectory, directories$keyFile), verbose = TRUE)
 weather <- fread(file.path(dataDirectory, directories$weatherFile), verbose = TRUE)
 
 #Traces and missing values removal------------------
+#Keep an object with the original weather for comparison
+originalWeather <- as.data.frame(weather)
+#Transform "M"s to NAs
+originalWeather[originalWeather == "M"] <- NA
+originalWeather[originalWeather == "-"] <- NA
+originalWeather <- as.data.table(originalWeather)
+
+#Remove unknown values
 weather <- as.data.frame(weather)
 for (station in sort(unique(weather$station_nbr))){
   
@@ -51,14 +60,24 @@ weather <- as.data.table(weather)
 
 #EDA--------------------------------
 #EDA #1; Find Missing before and after transformation
+#Original Weather
+NAsInOriginalWeather <- as.data.frame(colSums(is.na(originalWeather)) / nrow(originalWeather) * 100)
+colnames(NAsInOriginalWeather) <-  "MissingValuesProportion"
+NAsInOriginalWeather$names <- rownames(NAsInOriginalWeather)
+#Plot the amount of missing values in original weather data
+missingOriginalWeather <- ggplot(data = NAsInOriginalWeather, aes(x = names, y = MissingValuesProportion, fill = names)) + geom_bar(stat = "identity") 
+
+#Transformed Weather
 NAsInWeather <- as.data.frame(colSums(is.na(weather)) / nrow(weather) * 100)
 colnames(NAsInWeather) <-  "MissingValuesProportion"
 NAsInWeather$names <- rownames(NAsInWeather)
-
 #Plot the amount of missing values in weather data
-ggplot(data = NAsInWeather, aes(x = names, y = MissingValuesProportion, fill = names)) + geom_bar(stat = "identity") 
+missingTransformedWeather <- ggplot(data = NAsInWeather, aes(x = names, y = MissingValuesProportion, fill = names)) + geom_bar(stat = "identity") 
+
+multiplot(missingOriginalWeather, missingTransformedWeather, cols = 1)
 
 #Missing weather modeling-------------------
+
 
 #Merge stores with their respective weather stations----------------
 #Define mapping of stores and stations as list
@@ -78,14 +97,50 @@ test$station_nbr <- sapply(test$store_nbr, function(sNumber){
 NAsInWeather <- as.data.frame(colSums(is.na(weather)) / nrow(weather) * 100)
 colnames(NAsInWeather) <-  "MissingValues"
 
-validColumns <- rownames(NAsInWeather)[NAsInWeather$MissingValues == 0]
+weatherValidColumns <- rownames(NAsInWeather)[NAsInWeather$MissingValues == 0]
 
-trainWithWeather <- merge(train, weather[, validColumns, with = FALSE], by = c("date", "station_nbr"))
-testWithWeather <- merge(test, weather[, validColumns, with = FALSE], by = c( "date", "station_nbr"))
+trainWithWeather <- merge(train, weather[, weatherValidColumns, with = FALSE], by = c("date", "station_nbr"))
+testWithWeather <- merge(test, weather[, weatherValidColumns, with = FALSE], by = c("date", "station_nbr"))
+
+rm(train, test, keys, weather, stationsStoresList)
 
 #Linear Feature Selection------------
+#Exclude codsums and dates
+validColumns <- c("units", "item_nbr", 
+                  weatherValidColumns[c(-which(weatherValidColumns == "codesum"), -which(weatherValidColumns == "date"), 
+                                        -which(weatherValidColumns == "station_nbr"))])
 
-#Models comparison-------------------
+#Valid rows  
+validRowsTrain <- which(complete.cases(trainWithWeather))
+#Reduce data size
+reducedIdxs <- sample(validRowsTrain, floor(length(validRowsTrain)) * 0.1)
+
+linMatrixData <- as.data.frame(trainWithWeather)[reducedIdxs, validColumns]
+
+for (columnName in validColumns[-2]){
+  linMatrixData[, columnName] <- signif(as.numeric(linMatrixData[, columnName]), digits = 5)  
+}
+
+linMatrixData$item_nbr <- as.factor(linMatrixData$item_nbr)  
+
+#Transform Data to a matrix
+linMatrixData <- model.matrix(~ . , data = linMatrixData)
+#Find best linear combination of features
+linearBestModels <- regsubsets(x = linMatrixData[, c(-1, -2)],
+                               y = as.numeric(linMatrixData[, "units"]), 
+                               method = "forward", nvmax = 30)
+
+#Plot the best number of predictors
+bestMods <- summary(linearBestModels)
+bestNumberOfPredictors <- which.min(bestMods$cp)
+plot(bestMods$cp, xlab="Number of Variables", ylab="CP Error", main ="Best Predictors")
+points(bestNumberOfPredictors, bestMods$cp[bestNumberOfPredictors], pch=20, col="red")
+
+#Name of the most predictive rankings
+predictors1 <- as.data.frame(bestMods$which)
+predictors <- names(sort(apply(predictors1[, -1], 2, sum), decreasing = TRUE)[1:bestNumberOfPredictors])
+
+#Model comparison-------------------
 ##Data Preparation
 #Length Data Splits
 trainTrainData <- floor(nrow(trainWithWeather) * 0.6)   #60% of training data used to train models
@@ -103,23 +158,36 @@ dataSplits <- split(seq(1, nrow(trainWithWeather)), as.factor(groupsVector))
 
 ##GBM Model
 #Start h2o from command line
-system(paste0("java -Xmx5G -jar ", h2o.jarLoc, " -port 54333 -name WallmartII &"))
+system(paste0("java -Xmx6G -jar ", h2o.jarLoc, " -port 54333 -name WallmartII -single_precision &"))
 #Small pause
 Sys.sleep(3)
 #Connect R to h2o
 h2oServer <- h2o.init(ip = "localhost", port = 54333, nthreads = -1)
 
+validColumns <- c("store_nbr", "item_nbr", 
+                  weatherValidColumns[c(-which(weatherValidColumns == "date"), -which(weatherValidColumns == "codesum"))])
+                                      
 #R data.table to h2o.ai
 h2oWallmartTrain <- as.h2o(h2oServer, trainWithWeather)
 
+#Station numbers as factors
+h2oWallmartTrain$station_nbr <- as.factor(h2oWallmartTrain$station_nbr)
+h2oWallmartTrain$station_nbr <- as.factor(h2oWallmartTrain$station_nbr)
+#Item numbers as factors
+h2oWallmartTrain$item_nbr <- as.factor(h2oWallmartTrain$item_nbr)
+h2oWallmartTrain$item_nbr <- as.factor(h2oWallmartTrain$item_nbr)
+#Store numbers as factors
+h2oWallmartTrain$store_nbr <- as.factor(h2oWallmartTrain$store_nbr)
+h2oWallmartTrain$store_nbr <- as.factor(h2oWallmartTrain$store_nbr)
+
 #Smaller train dataset indices
-smallerDatasplit1 <- sample(dataSplits[[1]], floor(length(dataSplits[[1]]) * 0.1))
+smallerDatasplit1 <- sample(dataSplits[[1]], floor(length(dataSplits[[1]]) * 0.02))
 #Cross Validation
-wallmartGBMModelCV <- h2o.gbm(x = names(h2oWallmartTrain)[c(-2, -5)], y = "units",
+wallmartGBMModelCV <- h2o.gbm(x = validColumns, y = "units",
                               data = h2oWallmartTrain[smallerDatasplit1, ],
                               nfolds = 5,
                               distribution = "gaussian",
-                              interaction.depth = c(7, 11),
+                              interaction.depth = c(4, 7, 11),
                               shrinkage = c(0.001, 0.003),                           
                               n.trees = 250,
                               importance = TRUE,                           
@@ -127,7 +195,7 @@ wallmartGBMModelCV <- h2o.gbm(x = names(h2oWallmartTrain)[c(-2, -5)], y = "units
 
 #Save importance plot
 GBMImportanceDf <- as.data.frame(wallmartGBMModelCV@model[[1]]@model$varimp$Percent.Influence)
-GBMImportanceDf$variables <- names(h2oWallmartTrain)[c(-2, -5)]
+GBMImportanceDf$variables <- rownames(wallmartGBMModelCV@model[[1]]@model$varimp)
 names(GBMImportanceDf) <- c("PercentInfluence", "variables")
 variableImportnceGBM <- ggplot(data = GBMImportanceDf, aes(x = variables, y = PercentInfluence, fill = variables)) + geom_bar(stat = "identity")
 
@@ -136,7 +204,7 @@ bestInteraction.depth <- wallmartGBMModelCV@model[[1]]@model$params$interaction.
 bestShrinkage <- wallmartGBMModelCV@model[[1]]@model$params$shrinkage
 
 #h2o.ai GBM Modelling    
-wallmartGBMModel <- h2o.gbm(x = names(h2oWallmartTrain)[c(-2, -5)], y = "units",
+wallmartGBMModel <- h2o.gbm(x = validColumns, y = "units",
                             data = h2oWallmartTrain[c(dataSplits[[1]], dataSplits[[2]]), ],
                             distribution = "gaussian",
                             interaction.depth = bestInteraction.depth,
@@ -144,17 +212,155 @@ wallmartGBMModel <- h2o.gbm(x = names(h2oWallmartTrain)[c(-2, -5)], y = "units",
                             n.trees = 6000)
 
 #Regression Prediction 
-predictionGBMValidation <- as.data.frame(h2o.predict(wallmartGBMModel, newdata = h2oWallmartTrain[dataSplits[[3]], ]), ]))[, 1]
+predictionGBMValidation <- as.data.frame(h2o.predict(wallmartGBMModel, newdata = h2oWallmartTrain[dataSplits[[3]]]))[, 1]
+#Round negative values to zero
+predictionGBMValidation[predictionGBMValidation < 0] <- 0
+
 print(paste0("GBMs model built")) 
+
+#Save model
+h2o.saveModel(wallmartGBMModel, dir = dataDirectory, name = "GBMMiniModel", save_cv = FALSE, force = FALSE)
+#Clear Server
+h2o.rm(object = h2oServer, keys = h2o.ls(h2oServer)[, 1])   
 
 #Shutdown h20 server
 h2o.shutdown(h2oServer, prompt = FALSE)
 
 #Evaluate Model against known data
-actualAmountOfUnits <- trainWithWeather[dataSplits[[3]], "clicks"]
+actualAmountOfUnits <- as.data.frame(trainWithWeather[, "units", with = FALSE])[dataSplits[[3]], 1]
 testrmsle <- rmsle(predictionGBMValidation, actualAmountOfUnits)
 print(paste0("testNWMSE error of: ", testrmsle))
 
-
-#Make a submission .csv / .zip--------------
+##Make a submission file .csv / .zip
+#Read the sample file
 sampleSubmissionFile <- fread(file.path(dataDirectory, "sampleSubmission.csv"), verbose = TRUE)
+
+#Start h2o from command line
+system(paste0("java -Xmx6G -jar ", h2o.jarLoc, " -port 54333 -name WallmartII -single_precision &"))
+#Small pause
+Sys.sleep(3)
+#Connect R to h2o
+h2oServer <- h2o.init(ip = "localhost", port = 54333, nthreads = -1)
+
+#R data.table to h2o.ai
+h2oWallmartTest <- as.h2o(h2oServer, testWithWeather)
+
+#Load h2o Model
+wallmartGBMModel <- h2o.loadModel(h2oServer, path = file.path(dataDirectory, "GBMMiniModel"))
+
+#Station numbers as factors
+h2oWallmartTest$station_nbr <- as.factor(h2oWallmartTest$station_nbr)
+h2oWallmartTest$station_nbr <- as.factor(h2oWallmartTest$station_nbr)
+#Item numbers as factors
+h2oWallmartTest$item_nbr <- as.factor(h2oWallmartTest$item_nbr)
+h2oWallmartTest$item_nbr <- as.factor(h2oWallmartTest$item_nbr)
+#Store numbers as factors
+h2oWallmartTest$store_nbr <- as.factor(h2oWallmartTest$store_nbr)
+h2oWallmartTest$store_nbr <- as.factor(h2oWallmartTest$store_nbr)
+
+#Regression Prediction 
+predictionGBMValidation <- as.data.frame(h2o.predict(wallmartGBMModel, newdata = h2oWallmartTest))[, 1]
+#Round negative values to zero
+predictionGBMValidation[predictionGBMValidation < 0] <- 0
+
+#Clear Server
+h2o.rm(object = h2oServer, keys = h2o.ls(h2oServer)[, 1])   
+
+#Shutdown h20 server
+h2o.shutdown(h2oServer, prompt = FALSE)
+
+print(paste0("GBM predictions ready"))
+
+sampleSubmissionFile$id <- paste(testWithWeather$store_nbr, testWithWeather$item_nbr, testWithWeather$date, sep = "_")
+sampleSubmissionFile$units <- predictionGBMValidation
+
+#Write File
+write.csv(sampleSubmissionFile, file = "GBMMiniI.csv", row.names = FALSE)
+system('zip GBMMiniI.zip GBMMiniI.csv')
+
+#Modeling with full data--------------------
+##GBM Model
+#Start h2o from command line
+system(paste0("java -Xmx6G -jar ", h2o.jarLoc, " -port 54333 -name WallmartII -single_precision &"))
+#Small pause
+Sys.sleep(3)
+#Connect R to h2o
+h2oServer <- h2o.init(ip = "localhost", port = 54333, nthreads = -1)
+
+validColumns <- c("store_nbr", "item_nbr", 
+                  weatherValidColumns[c(-which(weatherValidColumns == "date"), -which(weatherValidColumns == "codesum"))])
+
+#R data.table to h2o.ai
+h2oWallmartTrain <- as.h2o(h2oServer, trainWithWeather)
+
+#Station numbers as factors
+h2oWallmartTrain$station_nbr <- as.factor(h2oWallmartTrain$station_nbr)
+h2oWallmartTrain$station_nbr <- as.factor(h2oWallmartTrain$station_nbr)
+#Item numbers as factors
+h2oWallmartTrain$item_nbr <- as.factor(h2oWallmartTrain$item_nbr)
+h2oWallmartTrain$item_nbr <- as.factor(h2oWallmartTrain$item_nbr)
+#Store numbers as factors
+h2oWallmartTrain$store_nbr <- as.factor(h2oWallmartTrain$store_nbr)
+h2oWallmartTrain$store_nbr <- as.factor(h2oWallmartTrain$store_nbr)
+
+#h2o.ai GBM Modelling    
+wallmartGBMModel <- h2o.gbm(x = validColumns, y = "units",
+                            data = h2oWallmartTrain[c(dataSplits[[1]], dataSplits[[2]], dataSplits[[3]]), ],
+                            distribution = "gaussian",
+                            interaction.depth = bestInteraction.depth,
+                            shrinkage = bestShrinkage,                           
+                            n.trees = 6000)
+
+#Save model
+h2o.saveModel(wallmartGBMModel, dir = dataDirectory, name = "GBMFullModel", save_cv = FALSE, force = FALSE)
+#Clear Server
+h2o.rm(object = h2oServer, keys = h2o.ls(h2oServer)[, 1])   
+
+#Shutdown h20 server
+h2o.shutdown(h2oServer, prompt = FALSE)
+
+#Make predictions on (unknown) test data
+#Read the sample file
+sampleSubmissionFile <- fread(file.path(dataDirectory, "sampleSubmission.csv"), verbose = TRUE)
+
+#Start h2o from command line
+system(paste0("java -Xmx6G -jar ", h2o.jarLoc, " -port 54333 -name WallmartII -single_precision &"))
+#Small pause
+Sys.sleep(3)
+#Connect R to h2o
+h2oServer <- h2o.init(ip = "localhost", port = 54333, nthreads = -1)
+
+#R data.table to h2o.ai
+h2oWallmartTest <- as.h2o(h2oServer, testWithWeather)
+
+#Load h2o Model
+wallmartGBMModel <- h2o.loadModel(h2oServer, path = file.path(dataDirectory, "GBMFullModel"))
+
+#Station numbers as factors
+h2oWallmartTest$station_nbr <- as.factor(h2oWallmartTest$station_nbr)
+h2oWallmartTest$station_nbr <- as.factor(h2oWallmartTest$station_nbr)
+#Item numbers as factors
+h2oWallmartTest$item_nbr <- as.factor(h2oWallmartTest$item_nbr)
+h2oWallmartTest$item_nbr <- as.factor(h2oWallmartTest$item_nbr)
+#Store numbers as factors
+h2oWallmartTest$store_nbr <- as.factor(h2oWallmartTest$store_nbr)
+h2oWallmartTest$store_nbr <- as.factor(h2oWallmartTest$store_nbr)
+
+#Regression Prediction 
+predictionGBMValidation <- as.data.frame(h2o.predict(wallmartGBMModel, newdata = h2oWallmartTest))[, 1]
+#Round negative values to zero
+predictionGBMValidation[predictionGBMValidation < 0] <- 0
+
+#Clear Server
+h2o.rm(object = h2oServer, keys = h2o.ls(h2oServer)[, 1])   
+
+#Shutdown h20 server
+h2o.shutdown(h2oServer, prompt = FALSE)
+
+print(paste0("GBM predictions ready"))
+
+sampleSubmissionFile$id <- paste(testWithWeather$store_nbr, testWithWeather$item_nbr, testWithWeather$date, sep = "_")
+sampleSubmissionFile$units <- predictionGBMFull
+
+#Write File
+write.csv(sampleSubmissionFile, file = "GBMFullI.csv", row.names = FALSE)
