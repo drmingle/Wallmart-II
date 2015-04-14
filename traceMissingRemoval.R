@@ -2,6 +2,7 @@ traceMissingRemoval <- function(weatherDatatable){
   
   #Libraries
   require("zoo")
+  require("prospectr")
   
   #Transformation to data frame
   weatherDatatable <- as.data.frame(weatherDatatable)
@@ -34,16 +35,22 @@ traceMissingRemoval <- function(weatherDatatable){
     
     #Transformation to numeric data
     weatherDatatable[, colName] <- as.numeric(weatherDatatable[, colName])
+    #Remove Outliers
+    #weatherDatatable[, colName] <- normalOutliersFinder(as.numeric(weatherDatatable[, colName]))
         
     #Make a zoo object
     zooColumn <- zoo(weatherDatatable[, colName], order.by = datesFormated)
     
     if (sum(is.na(zooColumn))){
-      zooColumn <- na.spline(zooColumn)
+      zooColumn <- na.fill(zooColumn, "extend")
     }
     
+    #Smooth the result using a Savitzky-Golay filter
+    #smootherColumn <- savitzkyGolay(as.numeric(zooColumn), p = 2, w = 3, m = 0)
+    smootherColumn <- as.numeric(zooColumn)
+    
     #Return results as part of the data frame
-    weatherDatatable[, colName] <- as.numeric(zooColumn)
+    weatherDatatable[, colName] <- smootherColumn
     print(paste0(colName, " column processed"))
   }  
  

@@ -3,6 +3,10 @@ weatherModeling <- function(weatherDT, col2Predict){
   #Libraries
   require("h2o")
   require("ggplot2")
+  
+  #Functions
+  source(file.path(workingDirectory, "normalOutliersFinder.R"))
+  
   #Detect available cores
   numCores <- detectCores()
   
@@ -35,7 +39,7 @@ weatherModeling <- function(weatherDT, col2Predict){
                            data = h2oWeatherNoNAs[validIdx, ],
                            nfolds = 5,
                            distribution = "gaussian",
-                           interaction.depth = c(4, 7, 11),
+                           interaction.depth = c(7, 10),
                            shrinkage = c(0.001, 0.003),                           
                            n.trees = 300,
                            importance = TRUE,                           

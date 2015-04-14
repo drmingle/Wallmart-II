@@ -1,5 +1,5 @@
 #Wallmart II, job hunt second round
-#Ver. 0.1.1 #Missing weather modeling completed
+#Ver. 0.1.2 #Missing weather modeling and progressive modeling completed + improved NA fill
 
 #Libraries, directories, options and extra functions----------------------
 require("rjson")
@@ -7,11 +7,12 @@ require("parallel")
 require("data.table")
 require("zoo")
 require("h2o")
+require("prospectr")
 require("leaps")
 require("ggplot2")
 require("Metrics")
 
-#Read Settings file(EXPERIMENTAL)
+#Read Settings file
 directories <- fromJSON(file = "SETTINGS.json")
 
 #Set Directories
@@ -22,8 +23,11 @@ dataDirectory <- directories$dataDirectory
 h2o.jarLoc <- directories$h2o.jarLoc
 
 #Define extra functions
+source(file.path(workingDirectory, "normalOutliersFinder.R"))
 source(file.path(workingDirectory, "traceMissingRemoval.R"))
+source(file.path(workingDirectory, "weatherModeling.R"))
 source(file.path(workingDirectory, "multiplot.R"))
+source(file.path(workingDirectory, "weatherDistributionPlot.R"))
 
 #Detect available cores
 numCores <- detectCores()
@@ -42,7 +46,7 @@ originalWeather[originalWeather == "M"] <- NA
 originalWeather[originalWeather == "-"] <- NA
 originalWeather <- as.data.table(originalWeather)
 
-#Remove unknown values
+#Remove unknown values and bad data 
 weather <- as.data.frame(weather)
 for (station in sort(unique(weather$station_nbr))){
   
@@ -58,8 +62,43 @@ weather[weather == "M"] <- NA
 weather[weather == "-"] <- NA
 weather <- as.data.table(weather)
 
+#Missing weather modeling-------------------
+#Modeling from data without NAs only
+weatherNoNAs <- weather
+modeledWetbulb  <- weatherModeling(weather, col2Predict = "wetbulb")
+weatherNoNAs$wetbulb <- modeledWetbulb
+modeledStnpressure <- weatherModeling(weather, col2Predict = "stnpressure")
+weatherNoNAs$stnpressure <- modeledStnpressure
+modeledSealevel <- weatherModeling(weather, col2Predict = "sealevel")
+weatherNoNAs$sealevel <- modeledSealevel
+modeledSnowfall <- weatherModeling(weather, col2Predict = "snowfall")
+weatherNoNAs$snowfall <- modeledSnowfall
+modeledSunrise <- weatherModeling(weather, col2Predict = "sunrise")
+weatherNoNAs$sunrise <- modeledSunrise
+modeledSunset <- weatherModeling(weather, col2Predict = "sunset")
+weatherNoNAs$sunset <- modeledSunset
+modeledDepart <- weatherModeling(weather, col2Predict = "depart")
+weatherNoNAs$depart <- modeledDepart
+
+#Modeling from all data progresively
+weatherNoNAsProg <- weather
+modeledWetbulb  <- weatherModeling(weatherNoNAsProg, col2Predict = "wetbulb")
+weatherNoNAsProg$wetbulb <- modeledWetbulb
+modeledStnpressure <- weatherModeling(weatherNoNAsProg, col2Predict = "stnpressure")
+weatherNoNAsProg$stnpressure <- modeledStnpressure
+modeledSealevel <- weatherModeling(weatherNoNAsProg, col2Predict = "sealevel")
+weatherNoNAsProg$sealevel <- modeledSealevel
+modeledSnowfall <- weatherModeling(weatherNoNAsProg, col2Predict = "snowfall")
+weatherNoNAsProg$snowfall <- modeledSnowfall
+modeledSunrise <- weatherModeling(weatherNoNAsProg, col2Predict = "sunrise")
+weatherNoNAsProg$sunrise <- modeledSunrise
+modeledSunset <- weatherModeling(weatherNoNAsProg, col2Predict = "sunset")
+weatherNoNAsProg$sunset <- modeledSunset
+modeledDepart <- weatherModeling(weatherNoNAsProg, col2Predict = "depart")
+weatherNoNAsProg$depart <- modeledDepart
+
 #EDA--------------------------------
-#EDA #1; Find Missing before and after transformation
+#EDA #1; Find Missing before and after transformation & Weather Modeling
 #Original Weather
 NAsInOriginalWeather <- as.data.frame(colSums(is.na(originalWeather)) / nrow(originalWeather) * 100)
 colnames(NAsInOriginalWeather) <-  "MissingValuesProportion"
@@ -74,10 +113,22 @@ NAsInWeather$names <- rownames(NAsInWeather)
 #Plot the amount of missing values in weather data
 missingTransformedWeather <- ggplot(data = NAsInWeather, aes(x = names, y = MissingValuesProportion, fill = names)) + geom_bar(stat = "identity") 
 
-multiplot(missingOriginalWeather, missingTransformedWeather, cols = 1)
+#Modeled Missing Weather
+NAsInWeather <- as.data.frame(colSums(is.na(weatherNoNAs)) / nrow(weatherNoNAs) * 100)
+colnames(NAsInWeather) <-  "MissingValuesProportion"
+NAsInWeather$names <- rownames(NAsInWeather)
+#Plot the amount of missing values in weather data
+missingModeledWeather <- ggplot(data = NAsInWeather, aes(x = names, y = MissingValuesProportion, fill = names)) + geom_bar(stat = "identity") 
 
-#Missing weather modeling-------------------
+multiplot(missingOriginalWeather, missingTransformedWeather, missingModeledWeather, cols = 1)
 
+#EDA #2; Vizualize Weather data distributions, originally, transformed and after modeling
+#Original Weather
+weatherDistributionPlot(originalWeather)
+#Original Weather
+weatherDistributionPlot(weather)
+#Original Weather
+weatherDistributionPlot(weatherNoNAs)
 
 #Merge stores with their respective weather stations----------------
 #Define mapping of stores and stations as list
