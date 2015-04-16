@@ -67,7 +67,7 @@ weatherModeling <- function(weatherDT, col2Predict){
   weatherTargetPrediction <- as.data.frame(h2o.predict(weatherGBM, newdata = h2oWeatherNoNAs[targetNAIdx, ]))[, 1]
   
   weatherPredictedColumn <- as.data.frame(weatherDT)[, col2Predict]
-  weatherPredictedColumn[targetNAIdx] <- weatherTargetPrediction
+  weatherPredictedColumn[targetNAIdx] <- signif(weatherTargetPrediction, digits = 5)
   
   #Clear Server
   h2o.rm(object = h2oServer, keys = h2o.ls(h2oServer)[, 1])     

@@ -1,5 +1,5 @@
 #Wallmart II, job hunt second round
-#Ver. 0.1.2 #Missing weather modeling and progressive modeling completed + improved NA fill
+#Ver. 0.1.3 #weather types mining included + all three weather data tested
 
 #Libraries, directories, options and extra functions----------------------
 require("rjson")
@@ -26,6 +26,7 @@ h2o.jarLoc <- directories$h2o.jarLoc
 source(file.path(workingDirectory, "normalOutliersFinder.R"))
 source(file.path(workingDirectory, "traceMissingRemoval.R"))
 source(file.path(workingDirectory, "weatherModeling.R"))
+source(file.path(workingDirectory, "weatherType2Table.R"))
 source(file.path(workingDirectory, "multiplot.R"))
 source(file.path(workingDirectory, "weatherDistributionPlot.R"))
 
@@ -79,6 +80,8 @@ modeledSunset <- weatherModeling(weather, col2Predict = "sunset")
 weatherNoNAs$sunset <- modeledSunset
 modeledDepart <- weatherModeling(weather, col2Predict = "depart")
 weatherNoNAs$depart <- modeledDepart
+#Save progress
+save(weatherNoNAs, file = "weatherNoNAs.RData")
 
 #Modeling from all data progresively
 weatherNoNAsProg <- weather
@@ -96,6 +99,8 @@ modeledSunset <- weatherModeling(weatherNoNAsProg, col2Predict = "sunset")
 weatherNoNAsProg$sunset <- modeledSunset
 modeledDepart <- weatherModeling(weatherNoNAsProg, col2Predict = "depart")
 weatherNoNAsProg$depart <- modeledDepart
+#Save progress
+save(weatherNoNAsProg, file = "weatherNoNAsProg.RData")
 
 #EDA--------------------------------
 #EDA #1; Find Missing before and after transformation & Weather Modeling
@@ -206,6 +211,127 @@ groupsVector <- sample(c(rep(1, trainTrainData), rep(2, trainValidationData),
 #Shuffle Indices
 set.seed(1001001)
 dataSplits <- split(seq(1, nrow(trainWithWeather)), as.factor(groupsVector))
+
+##RF Model
+#Start h2o from command line
+system(paste0("java -Xmx6G -jar ", h2o.jarLoc, " -port 54333 -name WallmartII -single_precision &"))
+#Small pause
+Sys.sleep(3)
+#Connect R to h2o
+h2oServer <- h2o.init(ip = "localhost", port = 54333, nthreads = -1)
+
+validColumns <- c("store_nbr", "item_nbr", 
+                  weatherValidColumns[c(-which(weatherValidColumns == "date"), -which(weatherValidColumns == "codesum"))])
+
+#R data.table to h2o.ai
+h2oWallmartTrain <- as.h2o(h2oServer, trainWithWeather)
+
+#Station numbers as factors
+h2oWallmartTrain$station_nbr <- as.factor(h2oWallmartTrain$station_nbr)
+h2oWallmartTrain$station_nbr <- as.factor(h2oWallmartTrain$station_nbr)
+#Item numbers as factors
+h2oWallmartTrain$item_nbr <- as.factor(h2oWallmartTrain$item_nbr)
+h2oWallmartTrain$item_nbr <- as.factor(h2oWallmartTrain$item_nbr)
+#Store numbers as factors
+h2oWallmartTrain$store_nbr <- as.factor(h2oWallmartTrain$store_nbr)
+h2oWallmartTrain$store_nbr <- as.factor(h2oWallmartTrain$store_nbr)
+
+#Smaller train dataset indices
+smallerDatasplit1 <- sample(dataSplits[[1]], floor(length(dataSplits[[1]]) * 0.01))
+#Cross Validation
+wallmartRFModelCV <- h2o.randomForest(x = validColumns, y = "units",
+                                      data = h2oWallmartTrain[smallerDatasplit1, ],
+                                      nfolds = 5,
+                                      classification = FALSE,
+                                      ntree = c(75, 100),
+                                      depth = c(25, 50),  
+                                      type = "BigData",
+                                      importance = TRUE)
+
+#Save importance plot
+RFImportanceDf <- as.data.frame(t(wallmartRFModelCV@model[[1]]@model$varimp[1, ]))
+RFImportanceDf$variables <- as.character(names(wallmartRFModelCV@model[[1]]@model$varimp[1, ]))
+names(RFImportanceDf) <- c("PercentInfluence", "variables")
+variableImportnceRF <- ggplot(data = RFImportanceDf, aes(x = variables, y = PercentInfluence, fill = variables)) + geom_bar(stat = "identity")
+
+#Best Hyperparameters
+bestNtree <- wallmartRFModelCV@model[[1]]@model$params$ntree
+bestDepth <- wallmartRFModelCV@model[[1]]@model$params$depth
+
+#h2o.ai GBM Modelling    
+wallmartRFModel <- h2o.randomForest(x = validColumns, y = "units",
+                                    data = h2oWallmartTrain[c(dataSplits[[1]], dataSplits[[2]]), ],
+                                    classification = FALSE,
+                                    ntree = bestNtree,
+                                    depth = bestDepth,   
+                                    type = "BigData")
+
+#Regression Prediction 
+predictionRFValidation <- as.data.frame(h2o.predict(wallmartRFModel, newdata = h2oWallmartTrain[dataSplits[[3]]]))[, 1]
+#Round negative values to zero
+predictionRFValidation[predictionRFValidation < 0] <- 0
+
+print(paste0("RFs model built")) 
+
+#Save model
+h2o.saveModel(wallmartRFModel, dir = dataDirectory, name = "RFMiniModel", save_cv = FALSE, force = FALSE)
+#Clear Server
+h2o.rm(object = h2oServer, keys = h2o.ls(h2oServer)[, 1])   
+
+#Shutdown h20 server
+h2o.shutdown(h2oServer, prompt = FALSE)
+
+#Evaluate Model against known data
+actualAmountOfUnits <- as.data.frame(trainWithWeather[, "units", with = FALSE])[dataSplits[[3]], 1]
+testrmsle <- rmsle(predictionRFValidation, actualAmountOfUnits)
+print(paste0("testNWMSE error of: ", testrmsle))
+
+##Make a submission file .csv / .zip
+#Read the sample file
+sampleSubmissionFile <- fread(file.path(dataDirectory, "sampleSubmission.csv"), verbose = TRUE)
+
+#Start h2o from command line
+system(paste0("java -Xmx6G -jar ", h2o.jarLoc, " -port 54333 -name WallmartII -single_precision &"))
+#Small pause
+Sys.sleep(3)
+#Connect R to h2o
+h2oServer <- h2o.init(ip = "localhost", port = 54333, nthreads = -1)
+
+#R data.table to h2o.ai
+h2oWallmartTest <- as.h2o(h2oServer, testWithWeather)
+
+#Load h2o Model
+wallmartRFModel <- h2o.loadModel(h2oServer, path = file.path(dataDirectory, "RFMiniModel"))
+
+#Station numbers as factors
+h2oWallmartTest$station_nbr <- as.factor(h2oWallmartTest$station_nbr)
+h2oWallmartTest$station_nbr <- as.factor(h2oWallmartTest$station_nbr)
+#Item numbers as factors
+h2oWallmartTest$item_nbr <- as.factor(h2oWallmartTest$item_nbr)
+h2oWallmartTest$item_nbr <- as.factor(h2oWallmartTest$item_nbr)
+#Store numbers as factors
+h2oWallmartTest$store_nbr <- as.factor(h2oWallmartTest$store_nbr)
+h2oWallmartTest$store_nbr <- as.factor(h2oWallmartTest$store_nbr)
+
+#Regression Prediction 
+predictionRFValidation <- as.data.frame(h2o.predict(wallmartRFModel, newdata = h2oWallmartTest))[, 1]
+#Round negative values to zero
+predictionRFValidation[predictionRFValidation < 0] <- 0
+
+#Clear Server
+h2o.rm(object = h2oServer, keys = h2o.ls(h2oServer)[, 1])   
+
+#Shutdown h20 server
+h2o.shutdown(h2oServer, prompt = FALSE)
+
+print(paste0("RF predictions ready"))
+
+sampleSubmissionFile$id <- paste(testWithWeather$store_nbr, testWithWeather$item_nbr, testWithWeather$date, sep = "_")
+sampleSubmissionFile$units <- predictionRFValidation
+
+#Write File
+write.csv(sampleSubmissionFile, file = "RFMiniNoNAsProgI.csv", row.names = FALSE)
+system('zip RFMiniNoNAsProgI.zip RFMiniNoNAsProgI.csv')
 
 ##GBM Model
 #Start h2o from command line
