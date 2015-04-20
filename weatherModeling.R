@@ -41,7 +41,7 @@ weatherModeling <- function(weatherDT, col2Predict){
                            distribution = "gaussian",
                            interaction.depth = c(7, 10),
                            shrinkage = c(0.001, 0.003),                           
-                           n.trees = 300,
+                           n.trees = 200,
                            importance = TRUE,                           
                            grid.parallelism = numCores)
   
@@ -50,10 +50,14 @@ weatherModeling <- function(weatherDT, col2Predict){
   GBMImportanceDf$variables <- rownames(weatherGBMCV@model[[1]]@model$varimp)
   names(GBMImportanceDf) <- c("PercentInfluence", "variables")
   ggplot(data = GBMImportanceDf, aes(x = variables, y = PercentInfluence, fill = variables)) + geom_bar(stat = "identity")
+  #dev.print(file = paste0("Importance", col2Predict), device = png, width = 1200)
   
   #Best Hyperparameters
   bestInteraction.depth <- weatherGBMCV@model[[1]]@model$params$interaction.depth
   bestShrinkage <- weatherGBMCV@model[[1]]@model$params$shrinkage
+  
+  #Log Hyperparameters
+  #save(c(bestInteraction.depth, bestShrinkage), file = paste0("Hyperparameters", col2Predict))
   
   #h2o.ai GBM Modelling    
   weatherGBM <- h2o.gbm(x = validColumns, y = col2Predict,
@@ -61,7 +65,7 @@ weatherModeling <- function(weatherDT, col2Predict){
                         distribution = "gaussian",
                         interaction.depth = bestInteraction.depth,
                         shrinkage = bestShrinkage,                           
-                        n.trees = 4000)
+                        n.trees = 3000)
   
   #Regression Prediction 
   weatherTargetPrediction <- as.data.frame(h2o.predict(weatherGBM, newdata = h2oWeatherNoNAs[targetNAIdx, ]))[, 1]

@@ -1,5 +1,5 @@
 #Wallmart II, job hunt second round
-#Ver. 0.1.3 #weather types mining included + all three weather data tested
+#Ver. 0.1.5 #zero influence variables removed
 
 #Libraries, directories, options and extra functions----------------------
 require("rjson")
@@ -62,6 +62,15 @@ for (station in sort(unique(weather$station_nbr))){
 weather[weather == "M"] <- NA
 weather[weather == "-"] <- NA
 weather <- as.data.table(weather)
+
+##Codesum column as table
+codesumTable <- mclapply(weather$codesum, weatherType2Table, mc.cores = numCores)
+#Concatenate lists into a data.frame
+codesumTable <- as.data.table(do.call(rbind, codesumTable))
+
+#Concatenated Weather
+weather <- cbind(weather, codesumTable)
+rm(codesumTable)
 
 #Missing weather modeling-------------------
 #Modeling from data without NAs only
@@ -169,12 +178,12 @@ validColumns <- c("units", "item_nbr",
 #Valid rows  
 validRowsTrain <- which(complete.cases(trainWithWeather))
 #Reduce data size
-reducedIdxs <- sample(validRowsTrain, floor(length(validRowsTrain)) * 0.1)
+reducedIdxs <- sample(validRowsTrain, floor(length(validRowsTrain)) * 0.01)
 
 linMatrixData <- as.data.frame(trainWithWeather)[reducedIdxs, validColumns]
 
 for (columnName in validColumns[-2]){
-  linMatrixData[, columnName] <- signif(as.numeric(linMatrixData[, columnName]), digits = 5)  
+  linMatrixData[, columnName] <- as.numeric(linMatrixData[, columnName])
 }
 
 linMatrixData$item_nbr <- as.factor(linMatrixData$item_nbr)  
@@ -258,6 +267,9 @@ variableImportnceRF <- ggplot(data = RFImportanceDf, aes(x = variables, y = Perc
 bestNtree <- wallmartRFModelCV@model[[1]]@model$params$ntree
 bestDepth <- wallmartRFModelCV@model[[1]]@model$params$depth
 
+#Remove insignificant variables
+validColumns <- RFImportanceDf$variables[RFImportanceDf$PercentInfluence > 1000]
+
 #h2o.ai GBM Modelling    
 wallmartRFModel <- h2o.randomForest(x = validColumns, y = "units",
                                     data = h2oWallmartTrain[c(dataSplits[[1]], dataSplits[[2]]), ],
@@ -285,6 +297,7 @@ h2o.shutdown(h2oServer, prompt = FALSE)
 actualAmountOfUnits <- as.data.frame(trainWithWeather[, "units", with = FALSE])[dataSplits[[3]], 1]
 testrmsle <- rmsle(predictionRFValidation, actualAmountOfUnits)
 print(paste0("testNWMSE error of: ", testrmsle))
+save(testrmsle, file = "testrmsle.RData")
 
 ##Make a submission file .csv / .zip
 #Read the sample file
@@ -330,8 +343,8 @@ sampleSubmissionFile$id <- paste(testWithWeather$store_nbr, testWithWeather$item
 sampleSubmissionFile$units <- predictionRFValidation
 
 #Write File
-write.csv(sampleSubmissionFile, file = "RFMiniNoNAsProgI.csv", row.names = FALSE)
-system('zip RFMiniNoNAsProgI.zip RFMiniNoNAsProgI.csv')
+write.csv(sampleSubmissionFile, file = "RFMiniWeatherTypeNoNaProg.csv", row.names = FALSE)
+system('zip RFMiniWeatherTypeNoNaProg.zip RFMiniWeatherTypeNoNaProg.csv')
 
 ##GBM Model
 #Start h2o from command line
