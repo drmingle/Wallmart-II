@@ -1,5 +1,5 @@
 #Wallmart II, job hunt second round
-#Ver. 0.1.6 #near-zero influence variables reincluded, weather variables correlations added
+#Ver. 0.1.7 #station number removed from weather exploratory analysis as it cannot provide predictive value (there are whole stations' data missing)
 
 #Libraries, directories, options and extra functions----------------------
 require("rjson")
@@ -135,10 +135,10 @@ modeledStnpressure <- weatherModeling(weatherNoNAsCorr, col2Predict = "stnpressu
 weatherNoNAsCorr$stnpressure <- modeledStnpressure
 modeledSnowfall <- weatherModeling(weatherNoNAsCorr, col2Predict = "snowfall")
 weatherNoNAsCorr$snowfall <- modeledSnowfall
-modeledSunrise <- weatherModeling(weatherNoNAsCorr, col2Predict = "sunrise")
-weatherNoNAsCorr$sunrise <- modeledSunrise
 modeledSunset <- weatherModeling(weatherNoNAsCorr, col2Predict = "sunset")
 weatherNoNAsCorr$sunset <- modeledSunset
+modeledSunrise <- weatherModeling(weatherNoNAsCorr, col2Predict = "sunrise")
+weatherNoNAsCorr$sunrise <- modeledSunrise
 modeledDepart <- weatherModeling(weatherNoNAsCorr, col2Predict = "depart")
 weatherNoNAsCorr$depart <- modeledDepart
 #Save progress

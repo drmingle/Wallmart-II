@@ -27,7 +27,7 @@ weatherModeling <- function(weatherDT, col2Predict){
   targetNAIdx <- which(is.na(as.data.frame(weatherWithoutNAs[, col2Predict, with = FALSE])[, 1]))
   
   ##Start h2o from command line
-  system(paste0("java -Xmx5G -jar ", h2o.jarLoc, " -port 54333 -name WallmartII -single_precision &"))
+  system(paste0("java -Xmx5G -jar ", h2o.jarLoc, " -port 54333 -name WallmartII &"))
   #Small pause
   Sys.sleep(3)
   #Connect R to h2o

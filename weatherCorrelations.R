@@ -7,18 +7,22 @@ weatherCorrelations <- function(weatherDT, col2correlate){
   
   #Linear Feature Selection------------
   #Exclude codsums and dates
-  validColumns <- names(weatherDT)[c(-2, -13)]
+  validColumns <- names(weatherDT)[c(-which(names(weatherDT) == "date"), 
+                                     -which(names(weatherDT) == "station_nbr"), 
+                                     -which(names(weatherDT) == "codesum"))]
   
   #Valid rows  
   validRowsTrain <- which(complete.cases(weatherDT))
   
   linMatrixData <- as.data.frame(weatherDT)[validRowsTrain, validColumns]
   
-  for (columnName in validColumns[c(-1, -19, -20)]){
+  for (columnName in validColumns[c(-which(validColumns == "year"), 
+                                    -which(validColumns == "month"))]){
     linMatrixData[, columnName] <- as.numeric(linMatrixData[, columnName])
   }
   
-  for (columnName in validColumns[c(1, 19, 20)]){
+  for (columnName in validColumns[c(which(validColumns == "year"), 
+                                    which(validColumns == "month"))]){
     linMatrixData[, columnName] <- as.factor(linMatrixData[, columnName])
   }
     
@@ -46,7 +50,7 @@ weatherCorrelations <- function(weatherDT, col2correlate){
   weatherValid <- as.data.frame(weatherDT)[validRowsTrain, validColumns]
   
   ##Start h2o from command line
-  system(paste0("java -Xmx5G -jar ", h2o.jarLoc, " -port 54333 -name WallmartII -single_precision &"))
+  system(paste0("java -Xmx5G -jar ", h2o.jarLoc, " -port 54333 -name WallmartII &"))
   #Small pause
   Sys.sleep(3)
   #Connect R to h2o
@@ -54,7 +58,8 @@ weatherCorrelations <- function(weatherDT, col2correlate){
   #R data.table to h2o.ai
   h2oWeatherNoNAs <- as.h2o(h2oServer, weatherValid)
   #Factor columns as h2o factors
-  for (columnName in validColumns[c(1, 19, 20)]){
+  for (columnName in validColumns[c(which(validColumns == "year"), 
+                                    which(validColumns == "month"))]){
     h2oWeatherNoNAs[, columnName] <- as.factor(h2oWeatherNoNAs[, columnName])
     h2oWeatherNoNAs[, columnName] <- as.factor(h2oWeatherNoNAs[, columnName])
   }
