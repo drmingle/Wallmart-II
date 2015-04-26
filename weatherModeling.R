@@ -34,14 +34,19 @@ weatherModeling <- function(weatherDT, col2Predict){
   h2oServer <- h2o.init(ip = "localhost", port = 54333, nthreads = -1)
   #R data.table to h2o.ai
   h2oWeatherNoNAs <- as.h2o(h2oServer, weatherWithoutNAs)
+  #Factor columns as h2o factors
+  for (columnName in c("year", "month")){
+    h2oWeatherNoNAs[, columnName] <- as.factor(h2oWeatherNoNAs[, columnName])
+    h2oWeatherNoNAs[, columnName] <- as.factor(h2oWeatherNoNAs[, columnName])
+  }
   #Cross Validation
   weatherGBMCV <-  h2o.gbm(x = validColumns, y = col2Predict,
                            data = h2oWeatherNoNAs[validIdx, ],
                            nfolds = 5,
                            distribution = "gaussian",
-                           interaction.depth = c(7, 10),
-                           shrinkage = c(0.001, 0.003),                           
-                           n.trees = 200,
+                           interaction.depth = c(4, 7, 10),
+                           shrinkage =  0.003,                           
+                           n.trees = 250,
                            importance = TRUE,                           
                            grid.parallelism = numCores)
   
@@ -49,7 +54,7 @@ weatherModeling <- function(weatherDT, col2Predict){
   GBMImportanceDf <- as.data.frame(weatherGBMCV@model[[1]]@model$varimp$Percent.Influence)
   GBMImportanceDf$variables <- rownames(weatherGBMCV@model[[1]]@model$varimp)
   names(GBMImportanceDf) <- c("PercentInfluence", "variables")
-  ggplot(data = GBMImportanceDf, aes(x = variables, y = PercentInfluence, fill = variables)) + geom_bar(stat = "identity")
+  print(ggplot(data = GBMImportanceDf, aes(x = variables, y = PercentInfluence, fill = variables)) + geom_bar(stat = "identity"))
   #dev.print(file = paste0("Importance", col2Predict), device = png, width = 1200)
   
   #Best Hyperparameters
@@ -65,7 +70,7 @@ weatherModeling <- function(weatherDT, col2Predict){
                         distribution = "gaussian",
                         interaction.depth = bestInteraction.depth,
                         shrinkage = bestShrinkage,                           
-                        n.trees = 3000)
+                        n.trees = 3500)
   
   #Regression Prediction 
   weatherTargetPrediction <- as.data.frame(h2o.predict(weatherGBM, newdata = h2oWeatherNoNAs[targetNAIdx, ]))[, 1]

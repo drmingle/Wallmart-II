@@ -1,5 +1,5 @@
 #Wallmart II, job hunt second round
-#Ver. 0.1.7 #station number removed from weather exploratory analysis as it cannot provide predictive value (there are whole stations' data missing)
+#Ver. 0.2.1 #station 5 padded with NAs
 
 #Libraries, directories, options and extra functions----------------------
 require("rjson")
@@ -21,8 +21,11 @@ setwd(workingDirectory)
 dataDirectory <- directories$dataDirectory
 #h2o location
 h2o.jarLoc <- directories$h2o.jarLoc
+#EDA Plots location
+EDAPlotsLoc <- directories$EDALoc
 
 #Define extra functions
+source(file.path(workingDirectory, "weatherCorrelations.R"))
 source(file.path(workingDirectory, "normalOutliersFinder.R"))
 source(file.path(workingDirectory, "traceMissingRemoval.R"))
 source(file.path(workingDirectory, "weatherModeling.R"))
@@ -47,8 +50,17 @@ originalWeather[originalWeather == "M"] <- NA
 originalWeather[originalWeather == "-"] <- NA
 originalWeather <- as.data.table(originalWeather)
 
+#Add a factor column containing the day
+originalWeather$day <- substr(originalWeather$date, 9, 10)
+#Add a factor column containing the month information
+originalWeather$month <- substr(originalWeather$date, 6, 7)
+#Add a factor column containing the year information
+originalWeather$year <- substr(originalWeather$date, 1, 4)
+
 #Remove unknown values and bad data 
 weather <- as.data.frame(weather)
+
+#Missing Values and Traces fillout
 for (station in sort(unique(weather$station_nbr))){
   
   #This function fills out the missing data defined by different user defined methods  
@@ -58,9 +70,11 @@ for (station in sort(unique(weather$station_nbr))){
   print(paste0("weather station # ", station, " processed"))
 }
 
+#Add a factor column containing the day
+weather$day <- substr(weather$date, 9, 10)
 #Add a factor column containing the month information
 weather$month <- substr(weather$date, 6, 7)
-#Add a factor column containing the month information
+#Add a factor column containing the year information
 weather$year <- substr(weather$date, 1, 4)
 
 #Transform "M"s to NAs
@@ -77,72 +91,121 @@ codesumTable <- as.data.table(do.call(rbind, codesumTable))
 weather <- cbind(weather, codesumTable)
 rm(codesumTable)
 
+#Bad Data
+#Store station number 5
+station5 <- as.data.frame(weather[weather$station_nbr == 5, ])
+
+#Remove station 5 temporarely for modeling
+weatherNo5 <- weather[!weather$station_nbr == 5, ]
+
+#Bad data wrangling-----------------
+##All bad data as NA
+#Exclude codsums and dates
+validColumnsStation5 <- names(station5)[c(-which(names(station5) == "date"), 
+                                          -which(names(station5) == "station_nbr"), 
+                                          -which(names(station5) == "codesum"), 
+                                          -seq(24, 45))]
+#Numeric columns as numeric
+for (columnName in validColumnsStation5[c(-which(validColumnsStation5 == "year"), 
+                                          -which(validColumnsStation5 == "month"))]){
+  station5[, columnName] <- as.numeric(station5[, columnName])
+}
+#Factor columns as factors
+for (columnName in validColumnsStation5[c(which(validColumnsStation5 == "year"), 
+                                          which(validColumnsStation5 == "month"))]){
+  station5[, columnName] <- as.factor(station5[, columnName])
+}
+#Dates as date object
+station5[, "date"] <- as.Date(station5[, "date"], format = "%Y-%m-%d")
+
+#Original Plots
+station5graphs <- lapply(validColumnsStation5[c(-6, -13, -18, -19, -20)], function(colname, weather2Process){
+  ggplotDf <- as.data.frame(weather2Process[, colname])
+  names(ggplotDf)[1] <- "column"
+  ggplotDf$date <- weather2Process$date
+  print(ggplot(data = ggplotDf, aes(x = date, y = column)) + geom_line())
+  #Save Plot
+  dev.print(file = file.path(EDAPlotsLoc, paste0("station5", colname)), device = png, width = 1200)
+}, weather2Process = station5)
+
+#Invalid data columns as NA
+for (columnName in names(station5)[c(-which(names(station5) == "station_nbr"),
+                                     -which(names(station5) == "date"), 
+                                     -which(names(station5) == "resultdir"), 
+                                     -which(names(station5) == "resultspeed"), 
+                                     -which(names(station5) == "sealevel"), 
+                                     -which(names(station5) == "dewpoint"), 
+                                     -which(names(station5) == "sunrise"), 
+                                     -which(names(station5) == "sunset"))]){
+  station5[, columnName] <- NA
+}
+
+#Find invalid values
+naDewpointValue <- names(sort(table(station5$dewpoint), decreasing = TRUE))[1]
+naSealevelValue <- names(sort(table(station5$sealevel), decreasing = TRUE))[1]
+naResultdirValue <- names(sort(table(station5$resultdir), decreasing = TRUE))[1]
+naResultspeedValue <- names(sort(table(station5$resultspeed), decreasing = TRUE))[1]
+#Replace them with NAs
+station5$dewpoint[seq(1, 427)] <- NA
+station5$sealevel[seq(1, 427)] <- NA
+station5$resultdir[seq(1, 427)] <- NA
+station5$resultspeed[seq(1, 427)] <- NA
+
+#New Plots
+station5Newgraphs <- lapply(validColumnsStation5[c(5, 14, 15, 16)], function(colname, weather2Process){
+  ggplotDf <- as.data.frame(weather2Process[, colname])
+  names(ggplotDf)[1] <- "column"
+  ggplotDf$date <- weather2Process$date
+  print(ggplot(data = ggplotDf, aes(x = date, y = column)) + geom_line())
+  #Save Plot
+  dev.print(file = file.path(EDAPlotsLoc, paste0("NewStation5", colname)), device = png, width = 1200)
+}, weather2Process = station5)
+
+##Modeled bad data Values
+
 #Explore missing weather correlations---------
-predictorsWetbulb <- weatherCorrelations(weather, "wetbulb")
-predictorsStnpressure <- weatherCorrelations(weather, "stnpressure")
-predictorsSealevel <- weatherCorrelations(weather, "sealevel")
-predictorsSnowfall <- weatherCorrelations(weather, "snowfall")
-predictorsSunrise <- weatherCorrelations(weather, "sunrise")
-predictorsSunset <- weatherCorrelations(weather, "sunset")
-predictorsDepart <- weatherCorrelations(weather, "depart")
+predictorsList <- lapply(names(weatherNo5)[c(seq(3, 12), seq(14, 20))], function(colname, weather2Process){
+  return(weatherCorrelations(colname, weather2Process))
+}, weather2Process = weatherNo5)
 
 #Missing weather modeling-------------------
 #Modeling from data without NAs only
-weatherNoNAs <- weather
-modeledWetbulb  <- weatherModeling(weather, col2Predict = "wetbulb")
-weatherNoNAs$wetbulb <- modeledWetbulb
-modeledStnpressure <- weatherModeling(weather, col2Predict = "stnpressure")
-weatherNoNAs$stnpressure <- modeledStnpressure
-modeledSealevel <- weatherModeling(weather, col2Predict = "sealevel")
+weatherNoNAs <- weatherNo5
+modeledSealevel <- weatherModeling(weatherNo5, col2Predict = "sealevel")
 weatherNoNAs$sealevel <- modeledSealevel
-modeledSnowfall <- weatherModeling(weather, col2Predict = "snowfall")
+modeledSnowfall <- weatherModeling(weatherNo5, col2Predict = "snowfall")
 weatherNoNAs$snowfall <- modeledSnowfall
-modeledSunrise <- weatherModeling(weather, col2Predict = "sunrise")
-weatherNoNAs$sunrise <- modeledSunrise
-modeledSunset <- weatherModeling(weather, col2Predict = "sunset")
+modeledSunset <- weatherModeling(weatherNo5, col2Predict = "sunset")
 weatherNoNAs$sunset <- modeledSunset
-modeledDepart <- weatherModeling(weather, col2Predict = "depart")
+modeledSunrise <- weatherModeling(weatherNo5, col2Predict = "sunrise")
+weatherNoNAs$sunrise <- modeledSunrise
+modeledDepart <- weatherModeling(weatherNo5, col2Predict = "depart")
 weatherNoNAs$depart <- modeledDepart
+
+#Append station number 5
+rbind(weatherNoNAs, station5)
+
 #Save progress
 save(weatherNoNAs, file = "weatherNoNAs.RData")
 
-#Modeling from all data progresively (from more available to least available)
-weatherNoNAsProg <- weather
-modeledWetbulb  <- weatherModeling(weatherNoNAsProg, col2Predict = "wetbulb")
-weatherNoNAsProg$wetbulb <- modeledWetbulb
-modeledStnpressure <- weatherModeling(weatherNoNAsProg, col2Predict = "stnpressure")
-weatherNoNAsProg$stnpressure <- modeledStnpressure
-modeledSealevel <- weatherModeling(weatherNoNAsProg, col2Predict = "sealevel")
-weatherNoNAsProg$sealevel <- modeledSealevel
-modeledSnowfall <- weatherModeling(weatherNoNAsProg, col2Predict = "snowfall")
-weatherNoNAsProg$snowfall <- modeledSnowfall
-modeledSunrise <- weatherModeling(weatherNoNAsProg, col2Predict = "sunrise")
-weatherNoNAsProg$sunrise <- modeledSunrise
-modeledSunset <- weatherModeling(weatherNoNAsProg, col2Predict = "sunset")
-weatherNoNAsProg$sunset <- modeledSunset
-modeledDepart <- weatherModeling(weatherNoNAsProg, col2Predict = "depart")
-weatherNoNAsProg$depart <- modeledDepart
-#Save progress
-save(weatherNoNAsProg, file = "weatherNoNAsProg.RData")
+#Progressive modeling
+weatherProg <- weatherNo5
+modeledSealevel <- weatherModeling(weatherProg, col2Predict = "sealevel")
+weatherProg$sealevel <- modeledSealevel
+modeledSnowfall <- weatherModeling(weatherProg, col2Predict = "snowfall")
+weatherProg$snowfall <- modeledSnowfall
+modeledSunset <- weatherModeling(weatherProg, col2Predict = "sunset")
+weatherProg$sunset <- modeledSunset
+modeledSunrise <- weatherModeling(weatherProg, col2Predict = "sunrise")
+weatherProg$sunrise <- modeledSunrise
+modeledDepart <- weatherModeling(weatherProg, col2Predict = "depart")
+weatherProg$depart <- modeledDepart
 
-#Modeling according to correlations with other data
-weatherNoNAsCorr <- weather
-modeledWetbulb  <- weatherModeling(weatherNoNAsCorr, col2Predict = "wetbulb")
-weatherNoNAsCorr$wetbulb <- modeledWetbulb
-modeledSealevel <- weatherModeling(weatherNoNAsCorr, col2Predict = "sealevel")
-weatherNoNAsCorr$sealevel <- modeledSealevel
-modeledStnpressure <- weatherModeling(weatherNoNAsCorr, col2Predict = "stnpressure")
-weatherNoNAsCorr$stnpressure <- modeledStnpressure
-modeledSnowfall <- weatherModeling(weatherNoNAsCorr, col2Predict = "snowfall")
-weatherNoNAsCorr$snowfall <- modeledSnowfall
-modeledSunset <- weatherModeling(weatherNoNAsCorr, col2Predict = "sunset")
-weatherNoNAsCorr$sunset <- modeledSunset
-modeledSunrise <- weatherModeling(weatherNoNAsCorr, col2Predict = "sunrise")
-weatherNoNAsCorr$sunrise <- modeledSunrise
-modeledDepart <- weatherModeling(weatherNoNAsCorr, col2Predict = "depart")
-weatherNoNAsCorr$depart <- modeledDepart
+#Append station number 5
+rbind(weatherProg, station5)
+
 #Save progress
-save(weatherNoNAsCorr, file = "weatherNoNAsCorr.RData")
+save(weatherProg, file = "weatherNoNAs.RData")
 
 #EDA--------------------------------
 #EDA #1; Find Missing before and after transformation & Weather Modeling
@@ -153,8 +216,8 @@ NAsInOriginalWeather$names <- rownames(NAsInOriginalWeather)
 #Plot the amount of missing values in original weather data
 missingOriginalWeather <- ggplot(data = NAsInOriginalWeather, aes(x = names, y = MissingValuesProportion, fill = names)) + geom_bar(stat = "identity") 
 
-#Transformed Weather
-NAsInWeather <- as.data.frame(colSums(is.na(weather)) / nrow(weather) * 100)
+#Transformed Weather without station 5
+NAsInWeather <- as.data.frame(colSums(is.na(weatherNo5)) / nrow(weatherNo5) * 100)
 colnames(NAsInWeather) <-  "MissingValuesProportion"
 NAsInWeather$names <- rownames(NAsInWeather)
 #Plot the amount of missing values in weather data
@@ -172,10 +235,14 @@ multiplot(missingOriginalWeather, missingTransformedWeather, missingModeledWeath
 #EDA #2; Vizualize Weather data distributions, originally, transformed and after modeling
 #Original Weather
 weatherDistributionPlot(originalWeather)
-#Original Weather
+#Gaps filled Weather
 weatherDistributionPlot(weather)
-#Original Weather
+#Predicted Weather NoNas
 weatherDistributionPlot(weatherNoNAs)
+#Predicted Weather NoNas Progresive
+weatherDistributionPlot(weatherNoNAsProg)
+#Predicted Weather NoNas Progresive Correlations
+weatherDistributionPlot(weatherNoNAsCorr)
 
 #Merge stores with their respective weather stations----------------
 #Define mapping of stores and stations as list
@@ -200,7 +267,7 @@ weatherValidColumns <- rownames(NAsInWeather)[NAsInWeather$MissingValues == 0]
 trainWithWeather <- merge(train, weather[, weatherValidColumns, with = FALSE], by = c("date", "station_nbr"))
 testWithWeather <- merge(test, weather[, weatherValidColumns, with = FALSE], by = c("date", "station_nbr"))
 
-rm(train, test, keys, weather, stationsStoresList)
+rm(train, test, keys, weather, originalWeather, stationsStoresList)
 
 #Linear Feature Selection------------
 #Exclude codsums and dates
@@ -256,7 +323,7 @@ dataSplits <- split(seq(1, nrow(trainWithWeather)), as.factor(groupsVector))
 
 ##RF Model
 #Start h2o from command line
-system(paste0("java -Xmx6G -jar ", h2o.jarLoc, " -port 54333 -name WallmartII -single_precision &"))
+system(paste0("java -Xmx6G -jar ", h2o.jarLoc, " -port 54333 -name WallmartII &"))
 #Small pause
 Sys.sleep(3)
 #Connect R to h2o
@@ -268,21 +335,11 @@ validColumns <- c("store_nbr", "item_nbr",
 #R data.table to h2o.ai
 h2oWallmartTrain <- as.h2o(h2oServer, trainWithWeather)
 
-#Station numbers as factors
-h2oWallmartTrain$station_nbr <- as.factor(h2oWallmartTrain$station_nbr)
-h2oWallmartTrain$station_nbr <- as.factor(h2oWallmartTrain$station_nbr)
-#Item numbers as factors
-h2oWallmartTrain$item_nbr <- as.factor(h2oWallmartTrain$item_nbr)
-h2oWallmartTrain$item_nbr <- as.factor(h2oWallmartTrain$item_nbr)
-#Store numbers as factors
-h2oWallmartTrain$store_nbr <- as.factor(h2oWallmartTrain$store_nbr)
-h2oWallmartTrain$store_nbr <- as.factor(h2oWallmartTrain$store_nbr)
-#Month as factors
-h2oWallmartTrain$month <- as.factor(h2oWallmartTrain$month)
-h2oWallmartTrain$month <- as.factor(h2oWallmartTrain$month)
-#Year as factors
-h2oWallmartTrain$year <- as.factor(h2oWallmartTrain$year)
-h2oWallmartTrain$year <- as.factor(h2oWallmartTrain$year)
+#Factor columns as h2o factors
+for (columnName in c("station_nbr", "item_nbr", "store_nbr", "year", "month")){
+  h2oWallmartTrain[, columnName] <- as.factor(h2oWallmartTrain[, columnName])
+  h2oWallmartTrain[, columnName] <- as.factor(h2oWallmartTrain[, columnName])
+}
 
 #Smaller train dataset indices
 smallerDatasplit1 <- sample(dataSplits[[1]], floor(length(dataSplits[[1]]) * 0.01))
@@ -294,44 +351,36 @@ wallmartRFModelCV <- h2o.randomForest(x = validColumns, y = "units",
                                       ntree = c(75, 100),
                                       depth = c(25, 50),  
                                       type = "BigData",
-                                      key = "RFCV",
                                       importance = TRUE)
 
 #Save importance plot
 RFImportanceDf <- as.data.frame(t(wallmartRFModelCV@model[[1]]@model$varimp[1, ]))
 RFImportanceDf$variables <- as.character(names(wallmartRFModelCV@model[[1]]@model$varimp[1, ]))
 names(RFImportanceDf) <- c("PercentInfluence", "variables")
-variableImportnceRF <- ggplot(data = RFImportanceDf, aes(x = variables, y = PercentInfluence, fill = variables)) + geom_bar(stat = "identity")
+print(ggplot(data = RFImportanceDf, aes(x = variables, y = PercentInfluence, fill = variables)) + geom_bar(stat = "identity"))
+#Small pause
+Sys.sleep(3)
+#Save Plot
+dev.print(file = paste0("ImportanceVariablesRandomForest"), device = png, width = 1200)
 
 #Best Hyperparameters
-bestNtree <- wallmartRFModelCV@model[[1]]@model$params$ntree
-bestDepth <- wallmartRFModelCV@model[[1]]@model$params$depth
-
-#Remove insignificant variables
-validColumns <- RFImportanceDf$variables[(RFImportanceDf$PercentInfluence / sum(RFImportanceDf$PercentInfluence)) > 0]
-
+#bestNtree <- wallmartRFModelCV@model[[1]]@model$params$ntree
+#bestDepth <- wallmartRFModelCV@model[[1]]@model$params$depth
+bestNtree <- 100
+bestDepth <- 50
 #Remove Grid Search model
 h2o.rm(object = h2oServer, keys = h2o.ls(h2oServer)[, 1])   
 
 #Reload R data into h2o
 h2oWallmartTrain <- as.h2o(h2oServer, trainWithWeather)
-#Station numbers as factors
-h2oWallmartTrain$station_nbr <- as.factor(h2oWallmartTrain$station_nbr)
-h2oWallmartTrain$station_nbr <- as.factor(h2oWallmartTrain$station_nbr)
-#Item numbers as factors
-h2oWallmartTrain$item_nbr <- as.factor(h2oWallmartTrain$item_nbr)
-h2oWallmartTrain$item_nbr <- as.factor(h2oWallmartTrain$item_nbr)
-#Store numbers as factors
-h2oWallmartTrain$store_nbr <- as.factor(h2oWallmartTrain$store_nbr)
-h2oWallmartTrain$store_nbr <- as.factor(h2oWallmartTrain$store_nbr)
-#Month as factors
-h2oWallmartTrain$month <- as.factor(h2oWallmartTrain$month)
-h2oWallmartTrain$month <- as.factor(h2oWallmartTrain$month)
-#Year as factors
-h2oWallmartTrain$year <- as.factor(h2oWallmartTrain$year)
-h2oWallmartTrain$year <- as.factor(h2oWallmartTrain$year)
 
-#h2o.ai GBM Modelling    
+#Factor columns as h2o factors
+for (columnName in c("station_nbr", "item_nbr", "store_nbr", "year", "month")){
+  h2oWallmartTrain[, columnName] <- as.factor(h2oWallmartTrain[, columnName])
+  h2oWallmartTrain[, columnName] <- as.factor(h2oWallmartTrain[, columnName])
+}
+
+#h2o.ai RF Modelling    
 wallmartRFModel <- h2o.randomForest(x = validColumns, y = "units",
                                     data = h2oWallmartTrain[c(dataSplits[[1]], dataSplits[[2]]), ],
                                     classification = FALSE,
@@ -365,7 +414,7 @@ save(testrmsle, file = "testrmsle.RData")
 sampleSubmissionFile <- fread(file.path(dataDirectory, "sampleSubmission.csv"), verbose = TRUE)
 
 #Start h2o from command line
-system(paste0("java -Xmx6G -jar ", h2o.jarLoc, " -port 54333 -name WallmartII -single_precision &"))
+system(paste0("java -Xmx6G -jar ", h2o.jarLoc, " -port 54333 -name WallmartII &"))
 #Small pause
 Sys.sleep(3)
 #Connect R to h2o
@@ -377,21 +426,11 @@ h2oWallmartTest <- as.h2o(h2oServer, testWithWeather)
 #Load h2o Model
 wallmartRFModel <- h2o.loadModel(h2oServer, path = file.path(dataDirectory, "RFMiniModel"))
 
-#Station numbers as factors
-h2oWallmartTest$station_nbr <- as.factor(h2oWallmartTest$station_nbr)
-h2oWallmartTest$station_nbr <- as.factor(h2oWallmartTest$station_nbr)
-#Item numbers as factors
-h2oWallmartTest$item_nbr <- as.factor(h2oWallmartTest$item_nbr)
-h2oWallmartTest$item_nbr <- as.factor(h2oWallmartTest$item_nbr)
-#Store numbers as factors
-h2oWallmartTest$store_nbr <- as.factor(h2oWallmartTest$store_nbr)
-h2oWallmartTest$store_nbr <- as.factor(h2oWallmartTest$store_nbr)
-#Month as factors
-h2oWallmartTest$month <- as.factor(h2oWallmartTest$month)
-h2oWallmartTest$month <- as.factor(h2oWallmartTest$month)
-#Year as factors
-h2oWallmartTest$year <- as.factor(h2oWallmartTest$year)
-h2oWallmartTest$year <- as.factor(h2oWallmartTest$year)
+#Factor columns as h2o factors
+for (columnName in c("station_nbr", "item_nbr", "store_nbr", "year", "month")){
+  h2oWallmartTest[, columnName] <- as.factor(h2oWallmartTest[, columnName])
+  h2oWallmartTest[, columnName] <- as.factor(h2oWallmartTest[, columnName])
+}
 
 #Regression Prediction 
 predictionRFValidation <- as.data.frame(h2o.predict(wallmartRFModel, newdata = h2oWallmartTest))[, 1]
@@ -410,8 +449,8 @@ sampleSubmissionFile$id <- paste(testWithWeather$store_nbr, testWithWeather$item
 sampleSubmissionFile$units <- predictionRFValidation
 
 #Write File
-write.csv(sampleSubmissionFile, file = "RFMiniWeatherTypeBestFeatNoNaProg.csv", row.names = FALSE)
-system('zip RFMiniWeatherTypeBestFeatNoNaProg.zip RFMiniWeatherTypeBestFeatNoNaProg.csv')
+write.csv(sampleSubmissionFile, file = "RFFullWeatherNoNa.csv", row.names = FALSE)
+system('zip RFFullWeatherNoNa.zip RFFullWeatherNoNa.csv')
 
 ##GBM Model
 #Start h2o from command line
@@ -427,31 +466,21 @@ validColumns <- c("store_nbr", "item_nbr",
 #R data.table to h2o.ai
 h2oWallmartTrain <- as.h2o(h2oServer, trainWithWeather)
 
-#Station numbers as factors
-h2oWallmartTrain$station_nbr <- as.factor(h2oWallmartTrain$station_nbr)
-h2oWallmartTrain$station_nbr <- as.factor(h2oWallmartTrain$station_nbr)
-#Item numbers as factors
-h2oWallmartTrain$item_nbr <- as.factor(h2oWallmartTrain$item_nbr)
-h2oWallmartTrain$item_nbr <- as.factor(h2oWallmartTrain$item_nbr)
-#Store numbers as factors
-h2oWallmartTrain$store_nbr <- as.factor(h2oWallmartTrain$store_nbr)
-h2oWallmartTrain$store_nbr <- as.factor(h2oWallmartTrain$store_nbr)
-#Month as factors
-h2oWallmartTrain$month <- as.factor(h2oWallmartTrain$month)
-h2oWallmartTrain$month <- as.factor(h2oWallmartTrain$month)
-#Year as factors
-h2oWallmartTrain$year <- as.factor(h2oWallmartTrain$year)
-h2oWallmartTrain$year <- as.factor(h2oWallmartTrain$year)
+#Factor columns as h2o factors
+for (columnName in c("station_nbr", "item_nbr", "store_nbr", "year", "month")){
+  h2oWallmartTrain[, columnName] <- as.factor(h2oWallmartTrain[, columnName])
+  h2oWallmartTrain[, columnName] <- as.factor(h2oWallmartTrain[, columnName])
+}
 
 #Smaller train dataset indices
-smallerDatasplit1 <- sample(dataSplits[[1]], floor(length(dataSplits[[1]]) * 0.02))
+smallerDatasplit1 <- sample(dataSplits[[1]], floor(length(dataSplits[[1]]) * 0.01))
 #Cross Validation
 wallmartGBMModelCV <- h2o.gbm(x = validColumns, y = "units",
                               data = h2oWallmartTrain[smallerDatasplit1, ],
                               nfolds = 5,
                               distribution = "gaussian",
-                              interaction.depth = c(4, 7, 11),
-                              shrinkage = c(0.001, 0.003),                           
+                              interaction.depth = c(7, 11),
+                              shrinkage =  0.003,                           
                               n.trees = 250,
                               importance = TRUE,                           
                               grid.parallelism = numCores)
@@ -460,11 +489,29 @@ wallmartGBMModelCV <- h2o.gbm(x = validColumns, y = "units",
 GBMImportanceDf <- as.data.frame(wallmartGBMModelCV@model[[1]]@model$varimp$Percent.Influence)
 GBMImportanceDf$variables <- rownames(wallmartGBMModelCV@model[[1]]@model$varimp)
 names(GBMImportanceDf) <- c("PercentInfluence", "variables")
-variableImportnceGBM <- ggplot(data = GBMImportanceDf, aes(x = variables, y = PercentInfluence, fill = variables)) + geom_bar(stat = "identity")
+print(ggplot(data = GBMImportanceDf, aes(x = variables, y = PercentInfluence, fill = variables)) + geom_bar(stat = "identity"))
+#Small pause
+Sys.sleep(3)
+#Save Plot
+dev.print(file = paste0("ImportanceVariablesGBM"), device = png, width = 1200)
 
 #Best Hyperparameters
-bestInteraction.depth <- wallmartGBMModelCV@model[[1]]@model$params$interaction.depth
-bestShrinkage <- wallmartGBMModelCV@model[[1]]@model$params$shrinkage
+#bestInteraction.depth <- wallmartGBMModelCV@model[[1]]@model$params$interaction.depth
+#bestShrinkage <- wallmartGBMModelCV@model[[1]]@model$params$shrinkage
+bestInteraction.depth <- 11
+bestShrinkage <- 0.001
+
+#Remove Grid Search model
+h2o.rm(object = h2oServer, keys = h2o.ls(h2oServer)[, 1])   
+
+#Reload R data into h2o
+h2oWallmartTrain <- as.h2o(h2oServer, trainWithWeather)
+
+#Factor columns as h2o factors
+for (columnName in c("station_nbr", "item_nbr", "store_nbr", "year", "month")){
+  h2oWallmartTrain[, columnName] <- as.factor(h2oWallmartTrain[, columnName])
+  h2oWallmartTrain[, columnName] <- as.factor(h2oWallmartTrain[, columnName])
+}
 
 #h2o.ai GBM Modelling    
 wallmartGBMModel <- h2o.gbm(x = validColumns, y = "units",
@@ -511,21 +558,11 @@ h2oWallmartTest <- as.h2o(h2oServer, testWithWeather)
 #Load h2o Model
 wallmartGBMModel <- h2o.loadModel(h2oServer, path = file.path(dataDirectory, "GBMMiniModel"))
 
-#Station numbers as factors
-h2oWallmartTest$station_nbr <- as.factor(h2oWallmartTest$station_nbr)
-h2oWallmartTest$station_nbr <- as.factor(h2oWallmartTest$station_nbr)
-#Item numbers as factors
-h2oWallmartTest$item_nbr <- as.factor(h2oWallmartTest$item_nbr)
-h2oWallmartTest$item_nbr <- as.factor(h2oWallmartTest$item_nbr)
-#Store numbers as factors
-h2oWallmartTest$store_nbr <- as.factor(h2oWallmartTest$store_nbr)
-h2oWallmartTest$store_nbr <- as.factor(h2oWallmartTest$store_nbr)
-#Month as factors
-h2oWallmartTest$month <- as.factor(h2oWallmartTest$month)
-h2oWallmartTest$month <- as.factor(h2oWallmartTest$month)
-#Year as factors
-h2oWallmartTest$year <- as.factor(h2oWallmartTest$year)
-h2oWallmartTest$year <- as.factor(h2oWallmartTest$year)
+#Factor columns as h2o factors
+for (columnName in c("station_nbr", "item_nbr", "store_nbr", "year", "month")){
+  h2oWallmartTest[, columnName] <- as.factor(h2oWallmartTest[, columnName])
+  h2oWallmartTest[, columnName] <- as.factor(h2oWallmartTest[, columnName])
+}
 
 #Regression Prediction 
 predictionGBMValidation <- as.data.frame(h2o.predict(wallmartGBMModel, newdata = h2oWallmartTest))[, 1]
@@ -544,8 +581,8 @@ sampleSubmissionFile$id <- paste(testWithWeather$store_nbr, testWithWeather$item
 sampleSubmissionFile$units <- predictionGBMValidation
 
 #Write File
-write.csv(sampleSubmissionFile, file = "GBMMiniI.csv", row.names = FALSE)
-system('zip GBMMiniI.zip GBMMiniI.csv')
+write.csv(sampleSubmissionFile, file = "GBMMiniII.csv", row.names = FALSE)
+system('zip GBMMiniII.zip GBMMiniII.csv')
 
 #Modeling with full data--------------------
 ##GBM Model
@@ -562,21 +599,11 @@ validColumns <- c("store_nbr", "item_nbr",
 #R data.table to h2o.ai
 h2oWallmartTrain <- as.h2o(h2oServer, trainWithWeather)
 
-#Station numbers as factors
-h2oWallmartTrain$station_nbr <- as.factor(h2oWallmartTrain$station_nbr)
-h2oWallmartTrain$station_nbr <- as.factor(h2oWallmartTrain$station_nbr)
-#Item numbers as factors
-h2oWallmartTrain$item_nbr <- as.factor(h2oWallmartTrain$item_nbr)
-h2oWallmartTrain$item_nbr <- as.factor(h2oWallmartTrain$item_nbr)
-#Store numbers as factors
-h2oWallmartTrain$store_nbr <- as.factor(h2oWallmartTrain$store_nbr)
-h2oWallmartTrain$store_nbr <- as.factor(h2oWallmartTrain$store_nbr)
-#Month as factors
-h2oWallmartTrain$month <- as.factor(h2oWallmartTrain$month)
-h2oWallmartTrain$month <- as.factor(h2oWallmartTrain$month)
-#Year as factors
-h2oWallmartTrain$year <- as.factor(h2oWallmartTrain$year)
-h2oWallmartTrain$year <- as.factor(h2oWallmartTrain$year)
+#Factor columns as h2o factors
+for (columnName in c("station_nbr", "item_nbr", "store_nbr", "year", "month")){
+  h2oWallmartTrain[, columnName] <- as.factor(h2oWallmartTrain[, columnName])
+  h2oWallmartTrain[, columnName] <- as.factor(h2oWallmartTrain[, columnName])
+}
 
 #h2o.ai GBM Modelling    
 wallmartGBMModel <- h2o.gbm(x = validColumns, y = "units",
@@ -611,21 +638,11 @@ h2oWallmartTest <- as.h2o(h2oServer, testWithWeather)
 #Load h2o Model
 wallmartGBMModel <- h2o.loadModel(h2oServer, path = file.path(dataDirectory, "GBMFullModel"))
 
-#Station numbers as factors
-h2oWallmartTest$station_nbr <- as.factor(h2oWallmartTest$station_nbr)
-h2oWallmartTest$station_nbr <- as.factor(h2oWallmartTest$station_nbr)
-#Item numbers as factors
-h2oWallmartTest$item_nbr <- as.factor(h2oWallmartTest$item_nbr)
-h2oWallmartTest$item_nbr <- as.factor(h2oWallmartTest$item_nbr)
-#Store numbers as factors
-h2oWallmartTest$store_nbr <- as.factor(h2oWallmartTest$store_nbr)
-h2oWallmartTest$store_nbr <- as.factor(h2oWallmartTest$store_nbr)
-#Month as factors
-h2oWallmartTest$month <- as.factor(h2oWallmartTest$month)
-h2oWallmartTest$month <- as.factor(h2oWallmartTest$month)
-#Year as factors
-h2oWallmartTest$year <- as.factor(h2oWallmartTest$year)
-h2oWallmartTest$year <- as.factor(h2oWallmartTest$year)
+#Factor columns as h2o factors
+for (columnName in c("station_nbr", "item_nbr", "store_nbr", "year", "month")){
+  h2oWallmartTest[, columnName] <- as.factor(h2oWallmartTest[, columnName])
+  h2oWallmartTest[, columnName] <- as.factor(h2oWallmartTest[, columnName])
+}
 
 #Regression Prediction 
 predictionGBMValidation <- as.data.frame(h2o.predict(wallmartGBMModel, newdata = h2oWallmartTest))[, 1]

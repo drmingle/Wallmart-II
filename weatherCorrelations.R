@@ -1,4 +1,4 @@
-weatherCorrelations <- function(weatherDT, col2correlate){
+weatherCorrelations <- function(col2correlate, weatherDT){
   
   #Libraries
   require("h2o")
@@ -38,6 +38,8 @@ weatherCorrelations <- function(weatherDT, col2correlate){
   bestNumberOfPredictors <- which.min(bestMods$cp)
   plot(bestMods$cp, xlab="Number of Variables", ylab="CP Error", main ="Best Predictors")
   points(bestNumberOfPredictors, bestMods$cp[bestNumberOfPredictors], pch=20, col="red")
+  #Save Plot
+  dev.print(file = paste0("ImportanceGLM", col2correlate), device = png, width = 1200)
   
   #Name of the most predictive rankings
   predictors1 <- as.data.frame(bestMods$which)
@@ -58,8 +60,7 @@ weatherCorrelations <- function(weatherDT, col2correlate){
   #R data.table to h2o.ai
   h2oWeatherNoNAs <- as.h2o(h2oServer, weatherValid)
   #Factor columns as h2o factors
-  for (columnName in validColumns[c(which(validColumns == "year"), 
-                                    which(validColumns == "month"))]){
+  for (columnName in c("year", "month")){
     h2oWeatherNoNAs[, columnName] <- as.factor(h2oWeatherNoNAs[, columnName])
     h2oWeatherNoNAs[, columnName] <- as.factor(h2oWeatherNoNAs[, columnName])
   }
@@ -82,7 +83,7 @@ weatherCorrelations <- function(weatherDT, col2correlate){
   #Small pause
   Sys.sleep(3)
   #Save Plot
-  dev.print(file = paste0("Importance", col2correlate), device = png, width = 1200)
+  dev.print(file = paste0("ImportanceGBM", col2correlate), device = png, width = 1200)
   
   
   gbmPredictors <- GBMImportanceDf$variables[GBMImportanceDf$PercentInfluence > 0]
