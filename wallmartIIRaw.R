@@ -1,5 +1,5 @@
 #Wallmart II, job hunt second round
-#Ver. 0.2.1 #station 5 padded with NAs
+#Ver. 0.2.2 #item availability information included
 
 #Libraries, directories, options and extra functions----------------------
 require("rjson")
@@ -41,6 +41,9 @@ train <- fread(file.path(dataDirectory, directories$trainFile), verbose = TRUE)
 test <- fread(file.path(dataDirectory, directories$testFile), verbose = TRUE)
 keys <- fread(file.path(dataDirectory, directories$keyFile), verbose = TRUE)
 weather <- fread(file.path(dataDirectory, directories$weatherFile), verbose = TRUE)
+
+#Remove station 5 (store 35) from training file
+train <- train[!train$store_nbr == 35]
 
 #Traces and missing values removal------------------
 #Keep an object with the original weather for comparison
@@ -125,7 +128,7 @@ station5graphs <- lapply(validColumnsStation5[c(-6, -13, -18, -19, -20)], functi
   ggplotDf$date <- weather2Process$date
   print(ggplot(data = ggplotDf, aes(x = date, y = column)) + geom_line())
   #Save Plot
-  dev.print(file = file.path(EDAPlotsLoc, paste0("station5", colname)), device = png, width = 1200)
+  dev.print(file = file.path(EDAPlotsLoc, "station5", paste0("station5", colname)), device = png, width = 1200)
 }, weather2Process = station5)
 
 #Invalid data columns as NA
@@ -161,8 +164,6 @@ station5Newgraphs <- lapply(validColumnsStation5[c(5, 14, 15, 16)], function(col
   dev.print(file = file.path(EDAPlotsLoc, paste0("NewStation5", colname)), device = png, width = 1200)
 }, weather2Process = station5)
 
-##Modeled bad data Values
-
 #Explore missing weather correlations---------
 predictorsList <- lapply(names(weatherNo5)[c(seq(3, 12), seq(14, 20))], function(colname, weather2Process){
   return(weatherCorrelations(colname, weather2Process))
@@ -182,9 +183,6 @@ weatherNoNAs$sunrise <- modeledSunrise
 modeledDepart <- weatherModeling(weatherNo5, col2Predict = "depart")
 weatherNoNAs$depart <- modeledDepart
 
-#Append station number 5
-rbind(weatherNoNAs, station5)
-
 #Save progress
 save(weatherNoNAs, file = "weatherNoNAs.RData")
 
@@ -201,11 +199,8 @@ weatherProg$sunrise <- modeledSunrise
 modeledDepart <- weatherModeling(weatherProg, col2Predict = "depart")
 weatherProg$depart <- modeledDepart
 
-#Append station number 5
-rbind(weatherProg, station5)
-
 #Save progress
-save(weatherProg, file = "weatherNoNAs.RData")
+save(weatherProg, file = "weatherProg.RData")
 
 #EDA--------------------------------
 #EDA #1; Find Missing before and after transformation & Weather Modeling
@@ -262,12 +257,15 @@ test$station_nbr <- sapply(test$store_nbr, function(sNumber){
 NAsInWeather <- as.data.frame(colSums(is.na(weather)) / nrow(weather) * 100)
 colnames(NAsInWeather) <-  "MissingValues"
 
-weatherValidColumns <- rownames(NAsInWeather)[NAsInWeather$MissingValues == 0]
+#Only columns without NAs
+#weatherValidColumns <- rownames(NAsInWeather)[NAsInWeather$MissingValues == 0]
+#All Columns
+weatherValidColumns <- rownames(NAsInWeather)
 
 trainWithWeather <- merge(train, weather[, weatherValidColumns, with = FALSE], by = c("date", "station_nbr"))
 testWithWeather <- merge(test, weather[, weatherValidColumns, with = FALSE], by = c("date", "station_nbr"))
 
-rm(train, test, keys, weather, originalWeather, stationsStoresList)
+rm(train, test, keys, weather, stationsStoresList)
 
 #Linear Feature Selection------------
 #Exclude codsums and dates
@@ -449,8 +447,8 @@ sampleSubmissionFile$id <- paste(testWithWeather$store_nbr, testWithWeather$item
 sampleSubmissionFile$units <- predictionRFValidation
 
 #Write File
-write.csv(sampleSubmissionFile, file = "RFFullWeatherNoNa.csv", row.names = FALSE)
-system('zip RFFullWeatherNoNa.zip RFFullWeatherNoNa.csv')
+write.csv(sampleSubmissionFile, file = "RFWeatherNoNaNo5.csv", row.names = FALSE)
+system('zip RFWeatherNoNaNo5.zip RFWeatherNoNaNo5.csv')
 
 ##GBM Model
 #Start h2o from command line

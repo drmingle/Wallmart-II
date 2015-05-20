@@ -46,7 +46,7 @@ weatherModeling <- function(weatherDT, col2Predict){
                            distribution = "gaussian",
                            interaction.depth = c(4, 7, 10),
                            shrinkage =  0.003,                           
-                           n.trees = 250,
+                           n.trees = 300,
                            importance = TRUE,                           
                            grid.parallelism = numCores)
   
@@ -55,7 +55,10 @@ weatherModeling <- function(weatherDT, col2Predict){
   GBMImportanceDf$variables <- rownames(weatherGBMCV@model[[1]]@model$varimp)
   names(GBMImportanceDf) <- c("PercentInfluence", "variables")
   print(ggplot(data = GBMImportanceDf, aes(x = variables, y = PercentInfluence, fill = variables)) + geom_bar(stat = "identity"))
-  #dev.print(file = paste0("Importance", col2Predict), device = png, width = 1200)
+  #Small pause
+  Sys.sleep(3)
+  #Save Plot  
+  dev.print(file = paste0("CVImportance", col2Predict), device = png, width = 1200)
   
   #Best Hyperparameters
   bestInteraction.depth <- weatherGBMCV@model[[1]]@model$params$interaction.depth
