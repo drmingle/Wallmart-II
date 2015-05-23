@@ -208,8 +208,8 @@ test$station_nbr <- sapply(test$store_nbr, function(sNumber){
   return(station)
 })
 
-weather <- weatherNoNAs
-#weather <- weatherProg
+#weather <- weatherNoNAs
+weather <- weatherProg
 
 #Select weather columns without NAs
 NAsInWeather <- as.data.frame(colSums(is.na(weather)) / nrow(weather) * 100)
@@ -322,10 +322,10 @@ Sys.sleep(3)
 dev.print(file = paste0("ImportanceVariablesRandomForest"), device = png, width = 1200)
 
 #Best Hyperparameters
-#bestNtree <- wallmartRFModelCV@model[[1]]@model$params$ntree
-#bestDepth <- wallmartRFModelCV@model[[1]]@model$params$depth
-bestNtree <- 125
-bestDepth <- 75
+bestNtree <- wallmartRFModelCV@model[[1]]@model$params$ntree
+bestDepth <- wallmartRFModelCV@model[[1]]@model$params$depth
+#bestNtree <- 125
+#bestDepth <- 75
 #Remove Grid Search model
 h2o.rm(object = h2oServer, keys = h2o.ls(h2oServer)[, 1])   
 
@@ -443,7 +443,7 @@ print(paste0("RF predictions ready"))
 variablePredictionsIds <- paste(testWithWeather$store_nbr, testWithWeather$item_nbr, testWithWeather$date, sep = "_")
 variablePredictions <- predictionRF
 constantPredictionsIds <- paste(testConstant$store_nbr, testConstant$item_nbr, testConstant$date, sep = "_")
-constantPredictions <- rep(0, ncol(testConstant))
+constantPredictions <- rep(0, nrow(testConstant))
 
 sampleSubmissionFile$id <- c(variablePredictionsIds, constantPredictionsIds)
 sampleSubmissionFile$units <- c(variablePredictions, constantPredictions)
@@ -480,7 +480,7 @@ wallmartGBMModelCV <- h2o.gbm(x = validColumns, y = "units",
                               data = h2oWallmartTrain[smallerDatasplit1, ],
                               nfolds = 5,
                               distribution = "gaussian",
-                              interaction.depth = c(7, 11, 14),
+                              interaction.depth = c(7, 11),
                               shrinkage =  0.003,                           
                               n.trees = 250,
                               importance = TRUE,                           
@@ -618,7 +618,7 @@ print(paste0("GBM predictions ready"))
 variablePredictionsIds <- paste(testWithWeather$store_nbr, testWithWeather$item_nbr, testWithWeather$date, sep = "_")
 variablePredictions <- predictionGBM
 constantPredictionsIds <- paste(testConstant$store_nbr, testConstant$item_nbr, testConstant$date, sep = "_")
-constantPredictions <- rep(0, ncol(testConstant))
+constantPredictions <- rep(0, nrow(testConstant))
 
 sampleSubmissionFile$id <- c(variablePredictionsIds, constantPredictionsIds)
 sampleSubmissionFile$units <- c(variablePredictions, constantPredictions)
