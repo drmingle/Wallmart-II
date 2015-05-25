@@ -12,7 +12,7 @@ https://github.com/h2oai/h2o-3/blob/master/h2o-docs/src/product/upgrade/Migratio
 
 ##EDA 
 Variable Importance for training model
-[Imgur](http://i.imgur.com/QrlhkVZ.png)
+![Imgur](http://i.imgur.com/QrlhkVZ.png)
 
 
 
