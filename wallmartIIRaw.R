@@ -208,8 +208,8 @@ test$station_nbr <- sapply(test$store_nbr, function(sNumber){
   return(station)
 })
 
-#weather <- weatherNoNAs
-weather <- weatherProg
+weather <- weatherNoNAs
+#weather <- weatherProg
 
 #Select weather columns without NAs
 NAsInWeather <- as.data.frame(colSums(is.na(weather)) / nrow(weather) * 100)
@@ -306,8 +306,9 @@ wallmartRFModelCV <- h2o.randomForest(x = validColumns, y = "units",
                                       data = h2oWallmartTrain[smallerDatasplit1, ],
                                       nfolds = 5,
                                       classification = FALSE,
-                                      ntree = c(75, 100, 125),
-                                      depth = c(25, 50, 75),  
+                                      ntree = c(100, 125),
+                                      depth = c(50, 75), 
+                                      mtries = floor(ncol(h2oWallmartTrain) / 2),
                                       type = "BigData",
                                       importance = TRUE)
 
@@ -342,6 +343,7 @@ for (columnName in c("station_nbr", "item_nbr", "store_nbr", "year", "month")){
 wallmartRFModel <- h2o.randomForest(x = validColumns, y = "units",
                                     data = h2oWallmartTrain[c(dataSplits[[1]], dataSplits[[2]]), ],
                                     classification = FALSE,
+                                    mtries = floor(ncol(h2oWallmartTrain) / 2),                                    
                                     ntree = bestNtree,
                                     depth = bestDepth,   
                                     type = "BigData")
@@ -392,6 +394,7 @@ wallmartRFModel <- h2o.randomForest(x = validColumns, y = "units",
                                     classification = FALSE,
                                     ntree = bestNtree,
                                     depth = bestDepth,   
+                                    mtries = floor(ncol(h2oWallmartTrain) / 2),                                    
                                     type = "BigData")
 
 #Save model
@@ -520,7 +523,7 @@ wallmartGBMModel <- h2o.gbm(x = validColumns, y = "units",
                             distribution = "gaussian",
                             interaction.depth = bestInteraction.depth,
                             shrinkage = bestShrinkage,                           
-                            n.trees = 6000)
+                            n.trees = 3000)
 
 #Regression Prediction 
 predictionGBMValidation <- as.data.frame(h2o.predict(wallmartGBMModel, newdata = h2oWallmartTrain[dataSplits[[3]]]))[, 1]
@@ -567,7 +570,7 @@ wallmartGBMModel <- h2o.gbm(x = validColumns, y = "units",
                             distribution = "gaussian",
                             interaction.depth = bestInteraction.depth,
                             shrinkage = bestShrinkage,                           
-                            n.trees = 6000)
+                            n.trees = 3000)
 
 #Save model
 h2o.saveModel(wallmartGBMModel, dir = dataDirectory, name = "GBMFullModel", save_cv = FALSE, force = FALSE)
